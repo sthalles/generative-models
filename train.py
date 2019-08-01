@@ -24,6 +24,8 @@ BATCH_SIZE = meta_parameters['batchsize']
 BUFFER_SIZE = 4096
 EPOCHS = meta_parameters['epochs']
 NUM_CLASSES = meta_parameters['dataset']['n_classes']
+SUMMARY_EVERY_N_STEPS = meta_parameters['summary_every_n_steps']
+SAVE_EVERY_N_STEPS = meta_parameters['save_every_n_steps']
 
 gen_parameters = meta_parameters['model']['generator']['args']
 disc_parameters = meta_parameters['model']['discriminator']['args']
@@ -55,14 +57,27 @@ train_summary_writer = tf.summary.create_file_writer(summary_path)
 
 copy_tree('./generator', os.path.join(basefolder, 'generator'))
 copy_tree('./discriminator', os.path.join(basefolder, 'discriminator'))
-copyfile('./train_sagan.py', os.path.join(basefolder, 'train_sagan.py'))
-checkpoint_dir = os.path.join(basefolder, 'checkpoints')
+copyfile('./train.py', os.path.join(basefolder, 'train.py'))
+
+retrain_from = '1564628105.845846'
+if retrain_from is not None:
+    checkpoint_dir = './records/' + retrain_from + '/checkpoints'
+else:
+    checkpoint_dir = os.path.join(basefolder, 'checkpoints')
 
 checkpoint = tf.train.Checkpoint(generator=generator,
                                  gen_optimizer=gen_optimizer,
                                  dis_optimizer=dis_optimizer,
                                  discriminator=discriminator)
 manager = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=2)
+
+# load checkpoints to continue training
+checkpoint.restore(manager.latest_checkpoint)
+if manager.latest_checkpoint:
+    print("Restored from {}".format(manager.latest_checkpoint))
+else:
+    print("Initializing from scratch.")
+
 
 kwargs = {'training': True}
 
@@ -120,10 +135,11 @@ def discriminator_train_step(x_real, y_real):
                                       discriminator.trainable_variables))
 
 
+truncation = meta_parameters['truncation'] # scalar truncation value in [0.0, 1.0]
 
 def train():
     with train_summary_writer.as_default():
-        truncation = 0.5  # scalar truncation value in [0.0, 1.0]
+
         for i, (x_real, y_real) in enumerate(train_dataset):
 
             if i % DISC_UPDATE == 0:
@@ -131,7 +147,7 @@ def train():
 
             discriminator_train_step(x_real=x_real, y_real=y_real)
 
-            if tf.math.equal(gen_optimizer.iterations % 200, 0):
+            if tf.math.equal(gen_optimizer.iterations % SUMMARY_EVERY_N_STEPS, 0):
                 z_dim = truncation * tf.random.truncated_normal([BATCH_SIZE, Z_DIM])  # noise sample
                 gen_class_logits = tf.zeros((BATCH_SIZE, NUM_CLASSES))
                 gen_class_ints = tf.random.categorical(gen_class_logits, 1)
@@ -142,41 +158,10 @@ def train():
                 tf.summary.image('generator_image', (x_fake + 1) * 0.5, max_outputs=12, step=gen_optimizer.iterations)
                 tf.summary.image('input_images', (x_real + 1) * 0.5, max_outputs=12, step=gen_optimizer.iterations)
 
-            if tf.math.equal(gen_optimizer.iterations % 1000, 0):
+            if tf.math.equal(gen_optimizer.iterations % SAVE_EVERY_N_STEPS, 0):
                 manager.save()
 
         print("New checkpoints saved.")
 
 
 train()
-
-
-
-
-
-# @tf.function
-# def train_step(z_dim, y_fake, x_real, y_real):
-#     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-#         x_fake = generator(z=z_dim, y=y_fake, sn_update=True, **kwargs)
-#
-#         disc_real = discriminator(x=x_real, y=y_real, sn_update=True)
-#
-#         disc_fake = discriminator(x=x_fake, y=y_fake, sn_update=False)
-#
-#         disc_loss = loss_hinge_dis(dis_fake=disc_fake, dis_real=disc_real)
-#         gen_loss = loss_hinge_gen(dis_fake=disc_fake)
-#
-#     tf.summary.scalar('generator_loss', gen_loss, step=gen_optimizer.iterations)
-#     tf.summary.scalar('discriminator_loss', disc_loss, step=dis_optimizer.iterations)
-#
-#     discriminator_gradients = disc_tape.gradient(disc_loss,
-#                                                  discriminator.trainable_variables)
-#
-#     generator_gradients = gen_tape.gradient(gen_loss,
-#                                             generator.trainable_variables)
-#
-#     dis_optimizer.apply_gradients(zip(discriminator_gradients,
-#                                       discriminator.trainable_variables))
-#
-#     gen_optimizer.apply_gradients(zip(generator_gradients,
-#                                       generator.trainable_variables))
