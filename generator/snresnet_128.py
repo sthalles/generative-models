@@ -3,27 +3,32 @@ from generator.resblocks import Block
 from layers.dense_sn import SNDense
 from layers.conv_sn import SNConv2D
 from layers.sn_non_local_block import SNNonLocalBlock
+from layers.orthogonal_regularization import conv_orthogonal_regularizer, dense_orthogonal_regularizer
 
 class ResNetGenerator(tf.keras.Model):
     def __init__(self, ch=64, dim_z=128, bottom_width=4, activation=tf.keras.layers.ReLU(),
                  n_classes=0, distribution="normal"):
         super(ResNetGenerator, self).__init__()
-        initializer = tf.keras.initializers.glorot_uniform()
+        initializer = tf.keras.initializers.Orthogonal()
+        kernel_regularizer = conv_orthogonal_regularizer(0.0001)
+        dense_regularizer = dense_orthogonal_regularizer(0.0001)
         self.bottom_width = bottom_width
         self.activation = activation
         self.distribution = distribution
         self.dim_z = dim_z
         self.n_classes = n_classes
 
-        self.l1 = SNDense(units=(bottom_width ** 2) * ch * 16, kernel_initializer=initializer)
+        self.l1 = SNDense(units=(bottom_width ** 2) * ch * 16, kernel_initializer=initializer,
+                          kernel_regularizer=dense_regularizer)
         self.block2 = Block(ch * 16, ch * 8, activation=activation, upsample=True, n_classes=n_classes)
         self.block3 = Block(ch * 8, ch * 8, activation=activation, upsample=True, n_classes=n_classes)
         self.block4 = Block(ch * 8, ch * 4, activation=activation, upsample=True, n_classes=n_classes)
-        self.self_atten = SNNonLocalBlock(ch * 4)
+        self.self_atten = SNNonLocalBlock(ch * 4, kernel_regularizer=kernel_regularizer)
         self.block5 = Block(ch * 4, ch * 2, activation=activation, upsample=True, n_classes=n_classes)
         self.block6 = Block(ch * 2, ch, activation=activation, upsample=True, n_classes=n_classes)
         self.b6 = tf.keras.layers.BatchNormalization()
-        self.l6 = SNConv2D(3, kernel_size=3, strides=1, padding="SAME", kernel_initializer=initializer)
+        self.l6 = SNConv2D(3, kernel_size=3, strides=1, padding="SAME", kernel_initializer=initializer,
+                           kernel_regularizer=kernel_regularizer)
 
     def __call__(self, z=None, y=None, sn_update=None, **kwargs):
 

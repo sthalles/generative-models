@@ -23,7 +23,7 @@ IMG_SIZE = meta_parameters['dataset']['img_size']
 BATCH_SIZE = meta_parameters['batchsize']
 BUFFER_SIZE = 4096
 EPOCHS = meta_parameters['epochs']
-NUM_CLASSES = meta_parameters['dataset']['n_classes']
+NUM_CLASSES = meta_parameters['n_classes']
 SUMMARY_EVERY_N_STEPS = meta_parameters['summary_every_n_steps']
 SAVE_EVERY_N_STEPS = meta_parameters['save_every_n_steps']
 
