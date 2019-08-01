@@ -1,1 +1,1 @@
-# self-attention-cgan
+# generative-models
