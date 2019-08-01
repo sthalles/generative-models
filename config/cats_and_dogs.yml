@@ -1,0 +1,33 @@
+# conditional CIFAR10 generation with SN and projection discriminator
+batchsize: 64
+disc_update: 2
+epochs: 100
+
+model:
+  generator:
+    args:
+      dim_z: 128
+      bottom_width: 4
+      ch: 64
+      n_classes: 143
+
+
+  discriminator:
+      args:
+        ch: 64
+        n_classes: 143
+
+dataset:
+  img_size: 64
+  n_classes: 143
+
+optimizer:
+  generator:
+    learning_rate: 0.0002
+    beta_1: 0.0
+    beta_2: 0.9
+
+  discriminator:
+    learning_rate: 0.0002
+    beta_1: 0.0
+    beta_2: 0.9
