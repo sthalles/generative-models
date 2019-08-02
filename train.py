@@ -78,15 +78,20 @@ if manager.latest_checkpoint:
 else:
     print("Initializing from scratch.")
 
-
 kwargs = {'training': True}
 
-def run_generator(sn_update):
-    z_dim = tf.random.normal([tf.constant(BATCH_SIZE), tf.constant(Z_DIM)])
 
-    gen_class_logits = tf.zeros((tf.constant(BATCH_SIZE), tf.constant(NUM_CLASSES)))
+def generate_fake_batch(batch_size, num_classes, zdim, truncation=1):
+    z_dim = truncation * tf.random.normal([batch_size, zdim])
+
+    gen_class_logits = tf.zeros((batch_size, num_classes))
     gen_class_ints = tf.random.categorical(gen_class_logits, 1)
     y_fake = tf.squeeze(gen_class_ints)
+    return z_dim, y_fake
+
+
+def run_generator(sn_update):
+    z_dim, y_fake = generate_fake_batch(batch_size=BATCH_SIZE, num_classes=NUM_CLASSES, zdim=Z_DIM)
 
     # tf.summary.histogram(name="z_dim", data=z_dim, step=gen_optimizer.iterations)
     # tf.summary.histogram(name="y_fake", data=y_fake, step=gen_optimizer.iterations)
@@ -97,7 +102,6 @@ def run_generator(sn_update):
 
 @tf.function
 def generator_train_step():
-
     with tf.GradientTape() as gen_tape:
         x_fake, y_fake = run_generator(sn_update=True)
         disc_fake = discriminator(x=x_fake, y=y_fake, sn_update=True)
@@ -114,10 +118,10 @@ def generator_train_step():
     gen_optimizer.apply_gradients(zip(generator_gradients,
                                       generator.trainable_variables))
 
+
 @tf.function
 def discriminator_train_step(x_real, y_real):
     with tf.GradientTape() as disc_tape:
-
         disc_real = discriminator(x=x_real, y=y_real, sn_update=True)
 
         x_fake, y_fake = run_generator(sn_update=True)
@@ -135,7 +139,8 @@ def discriminator_train_step(x_real, y_real):
                                       discriminator.trainable_variables))
 
 
-truncation = meta_parameters['truncation'] # scalar truncation value in [0.0, 1.0]
+truncation = meta_parameters['truncation']  # scalar truncation value in [0.0, 1.0]
+
 
 def train():
     with train_summary_writer.as_default():
@@ -148,10 +153,8 @@ def train():
             discriminator_train_step(x_real=x_real, y_real=y_real)
 
             if tf.math.equal(gen_optimizer.iterations % SUMMARY_EVERY_N_STEPS, 0):
-                z_dim = truncation * tf.random.truncated_normal([BATCH_SIZE, Z_DIM])  # noise sample
-                gen_class_logits = tf.zeros((BATCH_SIZE, NUM_CLASSES))
-                gen_class_ints = tf.random.categorical(gen_class_logits, 1)
-                y_fake = tf.squeeze(gen_class_ints)
+                # sample a fake batch
+                z_dim, y_fake = generate_fake_batch(batch_size=BATCH_SIZE, num_classes=NUM_CLASSES, zdim=Z_DIM, truncation=truncation)
 
                 x_fake = generator(z=z_dim, y=y_fake, sn_update=False, **kwargs)
 
