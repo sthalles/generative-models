@@ -1,9 +1,4 @@
 import tensorflow as tf
-from discriminator.snresnet_64 import SNResNetProjectionDiscriminator
-from generator.snresnet_64 import ResNetGenerator
-
-# from discriminator.snresnet_32 import SNResNetProjectionDiscriminator
-# from generator.snresnet_32 import ResNetGenerator
 from source.loss import loss_hinge_dis, loss_hinge_gen
 import time
 import os
@@ -13,38 +8,42 @@ from shutil import copyfile
 from source.rgb_preprocessing import *
 import numpy as np
 import yaml
+import importlib
 
 # Read YAML file
-with open("./config/cats_and_dogs.yml", 'r') as stream:
+with open("./config/celeb_a.yml", 'r') as stream:
     meta_parameters = yaml.safe_load(stream)
+
 
 DISC_UPDATE = meta_parameters['disc_update']
 IMG_SIZE = meta_parameters['dataset']['img_size']
 BATCH_SIZE = meta_parameters['batchsize']
-BUFFER_SIZE = 4096
+BUFFER_SIZE = 2048
 EPOCHS = meta_parameters['epochs']
 NUM_CLASSES = meta_parameters['n_classes']
 SUMMARY_EVERY_N_STEPS = meta_parameters['summary_every_n_steps']
 SAVE_EVERY_N_STEPS = meta_parameters['save_every_n_steps']
 
-gen_parameters = meta_parameters['model']['generator']['args']
-disc_parameters = meta_parameters['model']['discriminator']['args']
+gen_parameters = meta_parameters['model']['generator']
+disc_parameters = meta_parameters['model']['discriminator']
 
-Z_DIM = gen_parameters['dim_z']
+generator_lib = importlib.import_module(gen_parameters['lib'])
+discriminator_lib = importlib.import_module(disc_parameters['lib'])
 
-train_dataset = tf.data.TFRecordDataset('./tfrecords/train.tfrecords')
+Z_DIM = gen_parameters['args']['dim_z']
+
+train_dataset = tf.data.TFRecordDataset('./tfrecords/' + meta_parameters['dataset_name'])
 train_dataset = train_dataset.map(tf_record_parser)
 train_dataset = train_dataset.map(random_flip)
 train_dataset = train_dataset.map(normalize_rgb)
-# train_dataset = train_dataset.map(batch_gan)
 train_dataset = train_dataset.shuffle(BUFFER_SIZE)
 train_dataset = train_dataset.repeat(EPOCHS)
 train_dataset = train_dataset.batch(BATCH_SIZE)
 
 basefolder = os.path.join("records", str(time.time()))
 
-generator = ResNetGenerator(**gen_parameters)
-discriminator = SNResNetProjectionDiscriminator(**disc_parameters)
+generator = generator_lib.ResNetGenerator(**gen_parameters['args'])
+discriminator = discriminator_lib.SNResNetProjectionDiscriminator(**disc_parameters['args'])
 
 gen_optimizer_args = meta_parameters['optimizer']['generator']
 gen_optimizer = tf.keras.optimizers.Adam(**gen_optimizer_args)
@@ -59,7 +58,7 @@ copy_tree('./generator', os.path.join(basefolder, 'generator'))
 copy_tree('./discriminator', os.path.join(basefolder, 'discriminator'))
 copyfile('./train.py', os.path.join(basefolder, 'train.py'))
 
-retrain_from = '1564628105.845846'
+retrain_from = '1564847929.2151752'
 if retrain_from is not None:
     checkpoint_dir = './records/' + retrain_from + '/checkpoints'
 else:
@@ -81,29 +80,26 @@ else:
 kwargs = {'training': True}
 
 
-def generate_fake_batch(batch_size, num_classes, zdim, truncation=1):
-    z_dim = truncation * tf.random.normal([batch_size, zdim])
+def generate_fake_batch():
+    z_dim = tf.random.normal([BATCH_SIZE, Z_DIM])
 
-    gen_class_logits = tf.zeros((batch_size, num_classes))
+    gen_class_logits = tf.zeros((BATCH_SIZE, NUM_CLASSES))
     gen_class_ints = tf.random.categorical(gen_class_logits, 1)
     y_fake = tf.squeeze(gen_class_ints)
     return z_dim, y_fake
 
 
-def run_generator(sn_update):
-    z_dim, y_fake = generate_fake_batch(batch_size=BATCH_SIZE, num_classes=NUM_CLASSES, zdim=Z_DIM)
-
-    # tf.summary.histogram(name="z_dim", data=z_dim, step=gen_optimizer.iterations)
-    # tf.summary.histogram(name="y_fake", data=y_fake, step=gen_optimizer.iterations)
-
-    x_fake = generator(z=z_dim, y=y_fake, sn_update=sn_update, **kwargs)
-    return x_fake, y_fake
-
-
 @tf.function
 def generator_train_step():
     with tf.GradientTape() as gen_tape:
-        x_fake, y_fake = run_generator(sn_update=True)
+
+        z_dim, y_fake = generate_fake_batch()
+
+        # tf.summary.histogram(name="z_dim", data=z_dim, step=gen_optimizer.iterations)
+        # tf.summary.histogram(name="y_fake", data=y_fake, step=gen_optimizer.iterations)
+
+        x_fake = generator(z=z_dim, y=y_fake, sn_update=True, **kwargs)
+
         disc_fake = discriminator(x=x_fake, y=y_fake, sn_update=True)
 
         regularization_loss = tf.math.add_n(generator.losses)
@@ -124,7 +120,8 @@ def discriminator_train_step(x_real, y_real):
     with tf.GradientTape() as disc_tape:
         disc_real = discriminator(x=x_real, y=y_real, sn_update=True)
 
-        x_fake, y_fake = run_generator(sn_update=True)
+        z_dim, y_fake = generate_fake_batch()
+        x_fake = generator(z=z_dim, y=y_fake, sn_update=True, **kwargs)
 
         disc_fake = discriminator(x=x_fake, y=y_fake, sn_update=True)
 
@@ -154,8 +151,8 @@ def train():
 
             if tf.math.equal(gen_optimizer.iterations % SUMMARY_EVERY_N_STEPS, 0):
                 # sample a fake batch
-                z_dim, y_fake = generate_fake_batch(batch_size=BATCH_SIZE, num_classes=NUM_CLASSES, zdim=Z_DIM, truncation=truncation)
-
+                z_dim, y_fake = generate_fake_batch()
+                z_dim = truncation * z_dim
                 x_fake = generator(z=z_dim, y=y_fake, sn_update=False, **kwargs)
 
                 tf.summary.image('generator_image', (x_fake + 1) * 0.5, max_outputs=12, step=gen_optimizer.iterations)

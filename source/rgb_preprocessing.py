@@ -16,7 +16,7 @@ def random_resize(image):
 
 def normalize_rgb(image, target):
     image = image * (2. / 255) - 1.
-    # image += tf.random.uniform(shape=image.shape, minval=0., maxval=1. / 128)
+    image += tf.random.uniform(shape=image.shape, minval=0., maxval=1. / 128)
     return image, target
 
 # Function for resizing
@@ -78,6 +78,6 @@ def tf_record_parser(record):
     label = tf.cast(features['target'], tf.int32)
 
     # reshape input and annotation images
-    image = tf.reshape(image, (64, 64, 3), name="image_reshape")
+    image = tf.reshape(image, (128, 128, 3), name="image_reshape")
 
-    return image, label
+    return image, tf.cast(label, tf.int32)
